@@ -1,0 +1,242 @@
+import numpy as np
+from astropy.io import fits
+import matplotlib.pyplot as plt
+from astropy.stats import sigma_clip
+from matplotlib.colors import LogNorm
+
+import numpy as np
+from scipy import stats
+
+%matplotlib inline
+from matplotlib import pyplot as plt
+def median_bias(bias_list, median_bias_filename):
+    biasImg = []
+    for bias in bias_list:
+        biasData = fits.getdata(bias)
+        biasImg.append(biasData.astype('f4'))
+
+    biasImg_masked = sigma_clip(biasImg, cenfunc='median', sigma=3, axis=0)
+    median_bias = np.ma.median(biasImg_masked, axis=0)
+
+    primary = fits.PrimaryHDU(data=median_bias.data, header=fits.Header())
+    hdul = fits.HDUList([primary])
+    hdul.writeto(median_bias_filename, overwrite=True)
+
+    return median_bias
+
+bias_list = ["ecam-0301.fits", "ecam-0302.fits", "ecam-0303.fits", "ecam-0304.fits", "ecam-0305.fits", "ecam-0306.fits", "ecam-0307.fits", "ecam-0308.fits", "ecam-0309.fits"]
+master_bias = median_bias(bias_list, median_bias_filename = 'master bias - Night 2 bias')
+def median_dark(dark_list, dark_filename):
+    darkImg = []
+    for dark in dark_list:
+        darkData = fits.getdata(dark)
+        darkImg.append(darkData.astype('f4'))
+
+    median_dark = np.ma.median(darkImg, axis=0)
+
+    primary = fits.PrimaryHDU(data=median_dark.data, header=fits.Header())
+    hdul = fits.HDUList([primary])
+    hdul.writeto(dark_filename, overwrite=True)
+
+    return median_dark
+
+dark_list = ["ecam-0395.fits", "ecam-0394.fits", "ecam-0047 (1).fits"]
+master_dark = median_dark(dark_list, dark_filename = 'master dark - Night 1 & 2')
+dark_data = fits.getdata('master dark - Night 1 & 2').astype('f4')
+bias_data = fits.getdata('master bias - Night 2 bias').astype('f4')
+print(dark_data)
+[[256. 252. 267. ... 263. 258. 260.]
+ [263. 260. 277. ... 269. 250. 271.]
+ [272. 253. 261. ... 258. 259. 244.]
+ ...
+ [310. 295. 303. ... 292. 294. 298.]
+ [298. 291. 301. ... 285. 294. 310.]
+ [296. 294. 301. ... 303. 297. 298.]]
+thermal_signal_adu=dark_data - bias_data
+
+print(thermal_signal_adu)
+[[ 6.  1. 14. ... 12. 14. 13.]
+ [ 6. 16. 24. ... 24.  0. 17.]
+ [30.  5. -2. ...  3.  9. -4.]
+ ...
+ [52. 46. 41. ... 42. 45. 48.]
+ [47. 33. 37. ... 30. 31. 58.]
+ [35. 41. 38. ... 56. 44. 50.]]
+median_thermal_adu = np.median(thermal_signal_adu)
+
+dark_current_e_per_sec = (median_thermal_adu * 1.5) / 1800
+
+print(f"Calculated Dark Current: {dark_current_e_per_sec:.5f} e-/pixel/sec")
+Calculated Dark Current: 0.02667 e-/pixel/sec
+primary_dark = fits.PrimaryHDU(data=thermal_signal_adu.data, header=fits.Header())
+hdul_dark = fits.HDUList([primary_dark])
+hdul_dark.writeto('corrected dark', overwrite=True)
+'''def calculate_dark_current(dark_filename, exposure_time, gain, median_bias_filename, corrected_dark_filename):
+    """
+    Calculates the dark current of a camera sensor in e-/pixel/sec.
+    
+    Parameters:
+    - dark_paths: list of paths to dark frame FITS files
+    - bias_paths: list of paths to bias frame FITS files
+    - exposure_time: exposure time of the dark frames in seconds
+    - gain: camera gain value in electrons/ADU
+    """
+    
+    dark_data = fits.getdata(dark_filename).astype('f4')
+
+    bias_data = fits.getdata(median_bias_filename).astype('f4')
+    
+    # Isolate the thermal signal by subtracting the electronic baseline bias
+    thermal_signal_adu = dark_data - bias_data
+    
+    # Filter out extreme hot pixels/defects to find the true sensor baseline dark current
+    # We use the median of the frame instead of the mean to avoid hot pixel bias
+    median_thermal_adu = np.median(thermal_signal_adu)
+    
+    # Convert ADU to electrons and normalize by time
+    dark_current_e_per_sec = (median_thermal_adu * gain) / exposure_time
+
+    primary_dark = fits.PrimaryHDU(data=thermal_signal_adu.data, header=fits.Header())
+    hdul_dark = fits.HDUList([primary_dark])
+    hdul_dark.writeto(corrected_dark_filename, overwrite=True)
+    
+    print(f"Calculated Dark Current: {dark_current_e_per_sec:.5f} e-/pixel/sec")
+    
+    return dark_current_e_per_sec'''
+'def calculate_dark_current(dark_filename, exposure_time, gain, median_bias_filename, corrected_dark_filename):\n    """\n    Calculates the dark current of a camera sensor in e-/pixel/sec.\n\n    Parameters:\n    - dark_paths: list of paths to dark frame FITS files\n    - bias_paths: list of paths to bias frame FITS files\n    - exposure_time: exposure time of the dark frames in seconds\n    - gain: camera gain value in electrons/ADU\n    """\n\n    dark_data = fits.getdata(dark_filename).astype(\'f4\')\n\n    bias_data = fits.getdata(median_bias_filename).astype(\'f4\')\n\n    # Isolate the thermal signal by subtracting the electronic baseline bias\n    thermal_signal_adu = dark_data - bias_data\n\n    # Filter out extreme hot pixels/defects to find the true sensor baseline dark current\n    # We use the median of the frame instead of the mean to avoid hot pixel bias\n    median_thermal_adu = np.median(thermal_signal_adu)\n\n    # Convert ADU to electrons and normalize by time\n    dark_current_e_per_sec = (median_thermal_adu * gain) / exposure_time\n\n    primary_dark = fits.PrimaryHDU(data=thermal_signal_adu.data, header=fits.Header())\n    hdul_dark = fits.HDUList([primary_dark])\n    hdul_dark.writeto(corrected_dark_filename, overwrite=True)\n\n    print(f"Calculated Dark Current: {dark_current_e_per_sec:.5f} e-/pixel/sec")\n\n    return dark_current_e_per_sec'
+dark = ["ecam-0047 (1)"]
+master_bias = ["master bias - Night 2 bias"]
+exp_time = 1800.0
+camera_gain = 1.569834770982597
+'''dc = calculate_dark_current(dark, exp_time, camera_gain, master_bias, 'corrected dark 2')'''
+"dc = calculate_dark_current(dark, exp_time, camera_gain, master_bias, 'corrected dark 2')"
+image_data = fits.getdata('corrected dark')
+plt.imshow(image_data, cmap="gray", norm=LogNorm())
+plt.colorbar()
+<matplotlib.colorbar.Colorbar at 0x7d9c00abd1d0>
+No description has been provided for this image
+image_data = fits.getdata('master bias - Night 2 bias')
+plt.imshow(image_data, cmap="gray", norm=LogNorm())
+plt.colorbar()
+<matplotlib.colorbar.Colorbar at 0x7d9bf864afd0>
+No description has been provided for this image
+def plot_dark_with_distributions(image, rn, dark_rate, 
+                                 n_images=1,
+                                 exposure=1,
+                                 gain=1,
+                                 show_poisson=True, 
+                                 show_gaussian=True):
+    """
+    Plot the distribution of dark pixel values, optionally overplotting the expected Poisson and
+    normal distributions corresponding to dark current only or read noise only.
+    
+    Parameters
+    ----------
+    
+    image : numpy array
+        Dark frame to histogram.
+    
+    rn : float
+        The read noise, in electrons.
+        
+    dark_rate : float
+        The dark current in electrons/sec/pixel.
+    
+    n_images : float, optional
+        If the image is formed from the average of some number of dark frames then 
+        the resulting Poisson distribution depends on the number of images, as does the 
+        expected standard deviation of the Gaussian.
+        
+    exposure : float
+        Exposure time, in seconds.
+        
+    gain : float, optional
+        Gain of the camera, in electron/ADU.
+        
+    show_poisson : bool, optional
+        If ``True``, overplot a Poisson distribution with mean equal to the expected dark
+        counts for the number of images.
+    
+    show_gaussian : bool, optional
+        If ``True``, overplot a normal distribution with mean equal to the expected dark
+        counts and standard deviation equal to the read noise, scaled as appropiate for 
+        the number of images.
+    """
+    
+    h = plt.hist(image.flatten(), bins=20, align='mid', 
+                 density=True, label="Dark frame");
+
+    bins = h[1]
+    
+    expected_mean_dark = dark_rate * exposure / gain
+    
+    pois = stats.poisson(expected_mean_dark * n_images)
+
+    pois_x = np.arange(0, 300, 1)
+
+    new_area = np.sum(1/n_images * pois.pmf(pois_x))
+
+    if show_poisson:
+        plt.plot(pois_x / n_images, pois.pmf(pois_x) / new_area, 
+                 label="Poisson dsitribution, mean of {:5.2f} counts".format(expected_mean_dark)) 
+
+    if show_gaussian:
+        # The expected width of the Gaussian depends on the number of images.
+        expected_scale = rn / gain * np.sqrt(n_images)
+        
+        # Mean value is same as for the Poisson distribution 
+        expected_mean = expected_mean_dark * n_images
+        gauss = stats.norm(loc=expected_mean, scale=expected_scale)
+        
+        gauss_x = np.linspace(expected_mean - 5 * expected_scale,
+                              expected_mean + 5 * expected_scale,
+                              num=100)
+        plt.plot(gauss_x / n_images, gauss.pdf(gauss_x) * n_images, label='Gaussian, standard dev is read noise in counts') 
+        
+    plt.xlabel("Dark counts in {} sec exposure".format(exposure))
+    plt.ylabel("Fraction of pixels (area normalized to 1)")
+    plt.grid()
+    plt.legend()
+dark_image = fits.getdata('corrected dark')
+#plot_dark_with_distributions(dark_image, 15.4, 0.02791, exposure=1800, gain=1.5)
+from astropy.io import fits
+import numpy as np
+
+# Open the dark frame FITS file
+hdul = fits.open('corrected dark')
+dark_data = hdul[0].data
+
+# Calculate key ADU statistics for the dark frame
+mean_adu = np.mean(dark_data)
+median_adu = np.median(dark_data)
+std_adu = np.std(dark_data)
+
+print(f"Mean ADU: {mean_adu:.2f}")
+print(f"Median ADU: {median_adu:.2f}")
+
+hdul.close()
+Mean ADU: 32.02
+Median ADU: 32.00
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Define parameters for the single long dark exposure
+total_time = 1800.0  # e.g., total exposure length in seconds
+measured_adu = 32.02  # final mean ADU count measured in your long dark frame
+
+# Create synthetic intermediate time steps (e.g., every 10 seconds)
+time_steps = np.linspace(0, total_time, num=50)
+# Scale ADU linearly assuming constant dark current accumulation rate
+adu_counts = (time_steps / total_time) * measured_adu
+
+# Plot the resulting exposure count vs exposure time graph
+plt.plot(time_steps, adu_counts, label="Simulated Slope")
+plt.xlabel("Exposure Time (s)")
+plt.ylabel("Accumulated Counts (ADU)")
+plt.title("ADU vs Exposure Time from Single Dark")
+plt.grid(True)
+plt.legend()
+plt.show()
+
+m, c = np.polyfit(time_steps, adu_counts, deg=1)
+print(f"Calculation of Simulated Slope: {m}")
